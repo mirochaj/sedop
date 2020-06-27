@@ -287,8 +287,8 @@ class Anneal(object):
         F_final_guesses   = np.array(list(zip(*F_final_guesses)))
         
         results = {'Ei': E_initial_guesses, 'Ef': E_final_guesses,
-            'Fi': F_initial_guesses, 'Ff': F_final_guesses, 'cost': cost,
-            'walks': walks}
+            'Fi': F_initial_guesses, 'Ff': F_final_guesses, 
+            'cost': np.array(cost), 'walks': np.array(walks).swapaxes(0, 3)}
 
 
         return results

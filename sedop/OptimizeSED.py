@@ -15,6 +15,7 @@ import os
 import sys
 import h5py
 import time
+import shutil
 import numpy as np
 from .Anneal import Anneal
 from .ProgressBar import ProgressBar
@@ -84,7 +85,7 @@ class OptimizeSED(object):
             MPI.COMM_WORLD.barrier()
         
     def run(self, prefix, nsteps=10000, ntrials=1, clobber=False,
-        output_dir='.'):
+        output_dir='.', restart=False):
         """
         Run simulated annealing `ntrials` times for `nsteps` each to find
         optimal discrete representation of some SED.
@@ -101,6 +102,9 @@ class OptimizeSED(object):
             Number of steps to take in each independent trial.
         ntrials : int
             Number of trials to run.
+        restart : bool
+            If True, will simply augment pre-existing data outputs with 
+            more trials. Assumes all other parameters are identical.
         
         Returns
         -------
@@ -112,8 +116,12 @@ class OptimizeSED(object):
         # Prepare output directory.
         fn = '%s/%s.hdf5' % (output_dir, prefix)
 
-        if os.path.exists(fn) and (not clobber):
+        if os.path.exists(fn) and (not clobber) and (not restart):
             raise IOError("File {} exists! Delete or re-run with clobber=True to overwrite.".format(fn))
+        elif restart and (not os.path.exists(fn)):
+            raise IOError("File {} not found, though restart=True.".format(fn))
+        elif restart:
+            assert (not clobber), "If restart=True, set clobber=False."
 
         nsteps = int(nsteps)
         ntrials = int(ntrials)
@@ -335,18 +343,53 @@ class OptimizeSED(object):
 
         ##
         # Run minimization
-        self.results = anneal.minimize(f, nsteps, ntrials)
+        results = anneal.minimize(f, nsteps, ntrials)
+
+        # Re-organize the walks
+        num = self.pf['num_bins']
+        Esteps = np.zeros((num, ntrials, nsteps))
+        Fsteps = np.zeros((num, ntrials, nsteps))
+        for i in range(ntrials):
+            Esteps[:,i,:] = results['walks'][:,0,:,i]
+            Fsteps[:,i,:]  = results['walks'][:,1,:,i]
+
+        results['Esteps'] = Esteps
+        results['Fsteps'] = Fsteps
+        del results['walks']
 
         # Write data.
         if rank == 0:
-            f = h5py.File(fn, 'w')
+            if restart:
+                results_prev = {}
+                f = h5py.File(fn, 'r')
+                results_prev['Ei'] = np.array(f[('Ei')])
+                results_prev['Fi'] = np.array(f[('Fi')])
+                results_prev['Ef'] = np.array(f[('Ef')])
+                results_prev['Ff'] = np.array(f[('Ff')])
+                results_prev['cost'] = np.array(f[('cost')])
+                results_prev['Esteps'] = np.array(f[('Esteps')])
+                results_prev['Fsteps'] = np.array(f[('Fsteps')])
 
+                f.close()
+                shutil.copy(fn, fn+'.copy')
+
+                results_new = {}
+                for key in results:
+                    results_new[key] = \
+                        np.hstack((results_prev[key], results[key]))
+
+                print("Stacked new results with previous run.")
+                results = results_new
+                    
             # Store data
-            f.create_dataset('Ei', data=self.results['Ei'])
-            f.create_dataset('Fi', data=self.results['Fi'])
-            f.create_dataset('Ef', data=self.results['Ef'])
-            f.create_dataset('Ff', data=self.results['Fi'])
-            f.create_dataset('cost', data=self.results['cost'])
+            f = h5py.File(fn, 'w')
+            f.create_dataset('Ei', data=results['Ei'])
+            f.create_dataset('Fi', data=results['Fi'])
+            f.create_dataset('Ef', data=results['Ef'])
+            f.create_dataset('Ff', data=results['Fi'])
+            f.create_dataset('cost', data=results['cost'])
+            f.create_dataset('Esteps', data=results['Esteps'])
+            f.create_dataset('Fsteps', data=results['Fsteps'])
             
             # Store parameter file
             pfgrp = f.create_group('parameters')
@@ -357,16 +400,13 @@ class OptimizeSED(object):
             pfgrp.create_dataset('NHI_min', data=HIColumnMin)
             pfgrp.create_dataset('NHeI_min', data=HeIColumnMin)
             
-            # Save all the trials
-            num = self.pf['num_bins']
-            walks = np.zeros((ntrials, nsteps, 2 * num))
-            for i in range(ntrials):
-                walks[i,:,0:num] = self.results['walks'][i][0]
-                walks[i,:,num:]  = self.results['walks'][i][1]
-
             f.close()
-            
+                        
             print("Wrote {}.".format(fn))
+            
+            # Clean-up
+            if restart:
+                os.remove(fn+'.copy')
 
         if size > 1:
             MPI.COMM_WORLD.barrier()
@@ -376,6 +416,8 @@ class OptimizeSED(object):
         if rank == 0:
             print("Run time: {0} minutes".format(round((end - start) / 60, 2)))
             print("Results available in `results` attribute for safe-keeping.")
+        
+        self.results = results
         
         return self.results
 

@@ -9,11 +9,10 @@ Description: Functions to calculate various quantities from our sedop datasets.
 
 """
 
+import h5py
 import numpy as np
 import pylab as pl
 import itertools as it
-import sedop.mods as sm
-from .Dataset import Dataset
 import matplotlib.gridspec as gridspec
 
 try: 
@@ -30,8 +29,7 @@ colors = ['k', 'blue', 'red', 'green', 'cyan', 'magenta', 'yellow']
 symbols = ['o', 's', '^', '+', 'x']
 
 class Analyze(object):
-    def __init__(self, pf, read_all=True, merge=None, load_walks=True, 
-        auto_compute=False):
+    def __init__(self, prefix, pf=None):
         """
         Initialize our analysis environment, read in data.
             pf = Parameter file (either a dictionary or a text file)
@@ -39,60 +37,94 @@ class Analyze(object):
             merge = List of parameter files to merge together
             load_walks = Load random walk histories?
         """
-        self.ds = Dataset(pf, load_walks = load_walks, merge = merge, read_all = read_all)
-        self.pf = self.ds.pf
-        self.results = self.ds.results
         
-        # Load random walks (all steps of each random walk, actually)
-        if load_walks and self.pf['TrackWalks']: 
-            self.walks = self.ds.walks
+        self.prefix = prefix
+        self.pf = pf
         
-        # Initialize classes we might need
-        self.rs = sm.RadiationSource(self.pf)
-        self.ri = sm.RateIntegrals(self.pf)
+        #self.ds = Dataset(pf, load_walks = load_walks, merge = merge, read_all = read_all)
+        #self.pf = self.ds.pf
+        #self.results = self.ds.results
+        #
+        ## Load random walks (all steps of each random walk, actually)
+        #if load_walks and self.pf['TrackWalks']: 
+        #    self.walks = self.ds.walks
+        #
+        ## Initialize classes we might need
+        #self.rs = sm.RadiationSource(self.pf)
+        #self.ri = sm.RateIntegrals(self.pf)
+        #
+        ## Simulation parameters
+        #self.N = int(self.pf['NumberOfBins'])
+        #self.Nw = int(self.pf['NumberOfWalks'])
+        #
+        ## Make lists of the species and rate integrals used for this calculation
+        #if type(self.pf["Species"]) is not list: 
+        #    self.Species = [int(self.pf["Species"])]    
+        #else: 
+        #    self.Species = []
+        #    for element in self.pf["Species"]: 
+        #        self.Species.append(int(element))
+        #   
+        #self.Species = [0, 1]                    
+        #self.RateIntegral = [0, 1]
+        #        
+        ## Set up column densities and integral values
+        #self.HIColumnMin = self.pf["HIColumnMin"]
+        #self.HIColumnMax = self.pf["HIColumnMax"]
+        #self.HeIColumnMin = self.pf["HeIColumnMin"]
+        #self.HeIColumnMax = self.pf["HeIColumnMax"]
+        #self.HINumberOfColumns = self.pf["HINumberOfColumns"]
+        #self.HeINumberOfColumns = self.pf["HeINumberOfColumns"]
+        #        
+        #self.integral = []
+        #for element in self.RateIntegral:
+        #    if element == 0: 
+        #        self.integral.append(self.ri.Phi)
+        #    if element == 1: 
+        #        self.integral.append(self.ri.Psi)
+        #
+        ## Here are the bins we actually used to evaluate the discrete spectra 
+        #self.colHI = np.logspace(np.log10(self.HIColumnMin), np.log10(self.HIColumnMax), self.HINumberOfColumns)
+        #self.colHeI = np.logspace(np.log10(self.HeIColumnMin), np.log10(self.HeIColumnMax), self.HeINumberOfColumns)
+        #
+        ## Calculate a few things automatically - start with stats for E/F solutions
+        #self.stats()                    
+        #
+        ## Compute continuous integrals for this source, and 'best' integral solutions
+        #self.residuals = {}
+        #self.integral_solutions = {}    
+        #if auto_compute:
+        #    self.standard_integrals()  
+            
+    @property
+    def data(self):
+        if not hasattr(self, '_data'):
+            
+            if type(self.prefix) is str:
+                results = {}
+                f = h5py.File(self.prefix+'.hdf5', 'r')
+                results['Ei']   = np.array(f[('E_initial_guesses')])
+                results['Ef']   = np.array(f[('E_final_guesses')])
+                results['Fi']   = np.array(f[('F_initial_guesses')])
+                results['Ff']   = np.array(f[('F_final_guesses')])
+                results['cost'] = np.array(f[('cost')])
         
-        # Simulation parameters
-        self.N = int(self.pf['NumberOfBins'])
-        self.Nw = int(self.pf['NumberOfWalks'])
+                # Take parameter file from results output
+                pf = {}
+                for key in f['parameters'].keys():
+                    if type(f['parameters'][key].value) is np.ndarray:
+                        pf[key] = list(f['parameters'][key].value)
+                    else:
+                        pf[key] = f['parameters'][key].value    
         
-        # Make lists of the species and rate integrals used for this calculation
-        if type(self.pf["Species"]) is not list: 
-            self.Species = [int(self.pf["Species"])]    
-        else: 
-            self.Species = []
-            for element in self.pf["Species"]: 
-                self.Species.append(int(element))
-           
-        self.Species = [0, 1]                    
-        self.RateIntegral = [0, 1]
+                f.close()
                 
-        # Set up column densities and integral values
-        self.HIColumnMin = self.pf["HIColumnMin"]
-        self.HIColumnMax = self.pf["HIColumnMax"]
-        self.HeIColumnMin = self.pf["HeIColumnMin"]
-        self.HeIColumnMax = self.pf["HeIColumnMax"]
-        self.HINumberOfColumns = self.pf["HINumberOfColumns"]
-        self.HeINumberOfColumns = self.pf["HeINumberOfColumns"]
+                self._data = results
+                self._pf = pf
+            else:
+                self._data = self.prefix
                 
-        self.integral = []
-        for element in self.RateIntegral:
-            if element == 0: 
-                self.integral.append(self.ri.Phi)
-            if element == 1: 
-                self.integral.append(self.ri.Psi)
-        
-        # Here are the bins we actually used to evaluate the discrete spectra 
-        self.colHI = np.logspace(np.log10(self.HIColumnMin), np.log10(self.HIColumnMax), self.HINumberOfColumns)
-        self.colHeI = np.logspace(np.log10(self.HeIColumnMin), np.log10(self.HeIColumnMax), self.HeINumberOfColumns)
-        
-        # Calculate a few things automatically - start with stats for E/F solutions
-        self.stats()                    
-        
-        # Compute continuous integrals for this source, and 'best' integral solutions
-        self.residuals = {}
-        self.integral_solutions = {}    
-        if auto_compute:
-            self.standard_integrals()    
+        return self._data        
         
     def standard_integrals(self):
         """
@@ -223,9 +255,7 @@ class Analyze(object):
                 self.bins['F'][i] = Fbins
                 self.pdf['E'][i] = E[i]
                 self.pdf['F'][i] = F[i]      
-                
-                print(i, Ebins, Fbins, E[i], F[i])          
-                
+                                
                 self.cdf['E'][i] = np.cumsum(self.pdf['E'][i]) / np.sum(self.pdf['E'][i])
                 self.cdf['F'][i] = np.cumsum(self.pdf['F'][i]) / np.sum(self.pdf['F'][i])
                 
