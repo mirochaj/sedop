@@ -12,12 +12,7 @@ setup(name='sedop',
       description='Multi-frequency SED optimization via simulated annealing',
       author='Jordan Mirocha',
       author_email='mirochaj@gmail.com',
-      url='https://bitbucket.org/mirochaj/sedop',
-      packages=['sedop', 'sedop.mods', 'sedop.analysis'],
+      url='github.com/mirochaj/sedop',
+      packages=['sedop'],
      )
-     
-if not os.path.exists('bin'): 
-    os.mkdir('bin')     
-    
-os.system('cp sedop/mods/SEDOP.py bin')     
      

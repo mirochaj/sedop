@@ -11,6 +11,7 @@ Description: Simulated annealing baby.
 
 import numpy as np
 import copy, h5py, os
+from .ProgressBar import ProgressBar
 from .RadiationSource import RadiationSource
 
 try:
@@ -21,25 +22,16 @@ except ImportError:
     rank = 0
     size = 1
 
-try: 
-    from progressbar import *
-    pbar = True
-except ImportError: 
-    pbar = False
-
 class Anneal(object):
     def __init__(self, pf):
         self.pf = pf
         self.rs = RadiationSource(pf)
         self.Nbins = int(pf['NumberOfBins'])
-        self.Nwalks = int(pf['NumberOfWalks'])
-        self.Nsteps = int(pf['NumberOfSteps'])
                   
         self.Gamma = pf['TemperatureGamma']
         self.afreq = self.Nbins * pf['AnnealingFrequencyPerBin']
         self.maxEstep = pf["MaximumEnergyStep"]
         self.maxFstep = pf["MaximumNormalizationStep"]
-        self.pbar = bool(pf["ProgressBar"]) and pbar
                         
         # Set up initial guesses for bin placement and normalization
         # (may be overriden later but that's OK)
@@ -49,8 +41,9 @@ class Anneal(object):
                        
     def initial_guess(self):
         """
-        For each new random walk, we'll start with a different initial guess.  We'll divide the spectrum 
-        into self.Nbins sections, and put our initial guess for each energy bin in one of those segments.
+        For each new random walk, we'll start with a different initial guess.  
+        We'll divide the spectrum into self.Nbins sections, and put our initial 
+        guess for each energy bin in one of those segments.
         """
         
         # If we have a multi-frequency spectrum
@@ -134,15 +127,11 @@ class Anneal(object):
                                         
         return E, F
         
-    def minimize(self, f, fn):
+    def minimize(self, f, nsteps=10000, ntrials=5):
         """
         Minimize function f using Monte-Carlo ("Simulated Annealing") technique.
         """    
                            
-        # Widget for progressbar.
-        if self.pbar: 
-            widget = ["sedop: ", Percentage(), ' ', Bar(marker = RotatingMarker()), ' ', ETA(), ' ']
-        
         E_initial_guesses = []
         F_initial_guesses = []
         E_final_guesses = []
@@ -156,7 +145,8 @@ class Anneal(object):
         F = self.F
         
         # For each random walk
-        for i in np.arange(self.Nwalks):
+        walks = []
+        for i in np.arange(ntrials):
             
             # If this walk belongs to another proc, move on
             if i % size != rank: 
@@ -166,17 +156,17 @@ class Anneal(object):
             maxFstep = self.maxFstep
             
             # Store guess history for each walk if TrackWalks > 0
-            if self.pf['TrackWalks']:
-                basename = fn.rstrip('.h5')
-                newfn = '%s_%s%s.h5' % (basename, self.pf["ProcessorDumpName"], rank)
-                                    
-                if os.path.exists(newfn) and i == rank:
-                    if not self.pf["ClobberPreviousResults"]:
-                        raise IOError('%s exists.  Set ClobberPreviousResults = 1 to overwrite.' % newfn)
-                    else:
-                        os.system('rm -f %s' % newfn)    
-                    
-                history = h5py.File(newfn, 'a')                                    
+            #if self.pf['TrackWalks']:
+            #    basename = fn.rstrip('.hdf5')
+            #    newfn = '%s_%s%s.hdf5' % (basename, self.pf["ProcessorDumpName"], rank)
+            #                        
+            #    if os.path.exists(newfn) and i == rank:
+            #        if not self.pf["ClobberPreviousResults"]:
+            #            raise IOError('%s exists.  Set ClobberPreviousResults = 1 to overwrite.' % newfn)
+            #        else:
+            #            os.system('rm -f %s' % newfn)    
+            #        
+            #    history = h5py.File(newfn, 'a')                                    
         
             # Generate initial guesses for E, F -- or use best solutions from previous walk
             if self.pf["InitialGuessMemory"] and i > 0:
@@ -191,10 +181,10 @@ class Anneal(object):
             F_initial_guesses.append(F)        
                     
             # Set up guess history for this walk
-            E_guess_history = np.zeros([self.Nsteps, self.Nbins], float)
-            F_guess_history = np.zeros([self.Nsteps, self.Nbins], float)
-            cost_history = np.zeros(self.Nsteps, float)
-            acceptance_history = np.zeros([self.Nsteps, self.Nbins * 2], int)
+            E_guess_history = np.zeros([nsteps, self.Nbins], float)
+            F_guess_history = np.zeros([nsteps, self.Nbins], float)
+            cost_history = np.zeros(nsteps, float)
+            acceptance_history = np.zeros([nsteps, self.Nbins * 2], int)
             E_guess_history[0] = E
             F_guess_history[0] = F
             cost_history[0] = last_cost
@@ -210,14 +200,15 @@ class Anneal(object):
                                                                     
             if rank == 0:
                 print("Random walk #{0}...".format(i + 1))
+                
+            pbar = ProgressBar(nsteps)
+            pbar.start()    
             
             best_walk = 1 * last_cost    # is this a good idea?    
-            for j in range(self.Nsteps):
+            for j in range(nsteps):
                 
                 # Progress bar
-                if self.pbar and rank == 0 and j % 5 == 0:
-                    pbar = ProgressBar(widgets = widget, maxval = self.Nsteps - 1).start()
-                    pbar.update(float(j))
+                pbar.update(float(j))
                 
                 # Which parameter are we varying?
                 loc = int(np.random.rand() * 2 * self.Nbins)
@@ -274,31 +265,32 @@ class Anneal(object):
                 if np.all(last_cost - best_trial) < 0:
                     E_best = E
                     F_best = F                      
-                                                      
-            if self.pbar and rank == 0: 
-                pbar.finish()
+
+            pbar.finish()
                                                                                             
             E_final_guesses.append(E_guess_history[j])
             F_final_guesses.append(F_guess_history[j])
             cost.append(last_cost)
+            
+            walks.append((E_guess_history, F_guess_history))
                                                                                                                                                                                                  
             # Write guess history for this random walk
-            if self.pf['TrackWalks']:
-                ee = list(zip(*E_guess_history))
-                ff = list(zip(*F_guess_history))
-                aa = list(zip(*acceptance_history))
-                grp = history.create_group("walk{0}".format(i))
-                grp.create_dataset('cost', data = np.array(cost_history))
-                grp.create_dataset('temp', data = np.array(temperature))
-                for m, energy in enumerate(ee): 
-                    grp.create_dataset('e{0}'.format(m), data = np.array(ee[m]))
-                    grp.create_dataset('f{0}'.format(m), data = np.array(ff[m]))
-                    grp.create_dataset('acc{0}'.format(m), data = np.array(aa[m]))   
-             
-                if rank == 0:
-                    print("Wrote guess history for random walk #{0}.".format(i + 1))
-             
-                history.close() 
+            #if self.pf['TrackWalks']:
+            #    ee = list(zip(*E_guess_history))
+            #    ff = list(zip(*F_guess_history))
+            #    aa = list(zip(*acceptance_history))
+            #    grp = history.create_group("walk{0}".format(i))
+            #    grp.create_dataset('cost', data = np.array(cost_history))
+            #    grp.create_dataset('temp', data = np.array(temperature))
+            #    for m, energy in enumerate(ee): 
+            #        grp.create_dataset('e{0}'.format(m), data = np.array(ee[m]))
+            #        grp.create_dataset('f{0}'.format(m), data = np.array(ff[m]))
+            #        grp.create_dataset('acc{0}'.format(m), data = np.array(aa[m]))   
+            # 
+            #    if rank == 0:
+            #        print("Wrote guess history for random walk #{0}.".format(i + 1))
+            # 
+            #    history.close() 
                                             
         # This could all be post-processed...but let's do it here.    
         E_initial_guesses = MPI.COMM_WORLD.allreduce(E_initial_guesses, E_initial_guesses)            
@@ -311,7 +303,12 @@ class Anneal(object):
         F_initial_guesses = list(zip(*F_initial_guesses))
         E_final_guesses   = list(zip(*E_final_guesses))
         F_final_guesses   = list(zip(*F_final_guesses))
-                                
-        return E_initial_guesses, F_initial_guesses, E_final_guesses, F_final_guesses, cost                       
+        
+        results = {'Ei': E_initial_guesses, 'Ef': E_final_guesses,
+            'Fi': F_initial_guesses, 'Ff': F_final_guesses, 'cost': cost,
+            'walks': walks}
+
+
+        return results
         
     

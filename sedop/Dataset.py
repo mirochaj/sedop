@@ -28,7 +28,7 @@ class Dataset(object):
         """
         Initialize our analysis environment, read in data.
             pf = Parameter file (either a dictionary or a text file)
-            rdir = Results directory (if supplied, will read in all .h5 files)
+            rdir = Results directory (if supplied, will read in all .hdf5 files)
             merge = List of parameter files to merge together
             load_walks = Load random walk histories?
         """
@@ -54,23 +54,23 @@ class Dataset(object):
             self.gd = '%s' % (self.glo)        
                         
         # Cumulative results file     
-        self.cr = "%s/%s.h5" % (self.gd, self.pf["ResultsFileName"]) 
+        self.cr = "%s/%s.hdf5" % (self.gd, self.pf["ResultsFileName"]) 
                                                 
         """ 
         May just want to grab all data outputs in some directory.
         Assumed to all have the same parameters (just split up for the 
         sake of time, perhaps).  Will choke if h5 files containing walks are
-        in the same directory, since it looks for every file ending in '.h5'
+        in the same directory, since it looks for every file ending in '.hdf5'
         """
         if read_all:
             
             crs = []
             tmp = os.listdir(self.gd)
             for element in tmp:
-                if element == '%s.h5' % self.pf["ResultsFileName"]:
+                if element == '%s.hdf5' % self.pf["ResultsFileName"]:
                     continue
                 
-                if re.search('.h5', element) and not re.search(self.pf["ProcessorDumpName"], element):
+                if re.search('.hdf5', element) and not re.search(self.pf["ProcessorDumpName"], element):
                     crs.append("%s/%s" % (self.gd, element)) 
                                     
         # May want to merge multiple runs - pfs here is all pfs except the main one
@@ -86,9 +86,9 @@ class Dataset(object):
             crs = [] 
             for entry in pfs:
                 thispf = sm.ReadParameterFile(entry)
-                crs.append("%s/%s.h5" % (self.gd, thispf["ResultsFileName"]))
+                crs.append("%s/%s.hdf5" % (self.gd, thispf["ResultsFileName"]))
                                                 
-        # Read in files (one for each processor) containing random walks ('guess_history_proc1.h5' for example)
+        # Read in files (one for each processor) containing random walks ('guess_history_proc1.hdf5' for example)
         if load_walks:
             of_list = os.listdir(self.gd)
             self.of_list = []
