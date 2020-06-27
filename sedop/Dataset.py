@@ -24,7 +24,7 @@ k_B = 1.3806503e-16
 erg_per_ev = 1.60217646e-12
 
 class Dataset(object):
-    def __init__(self, pf, read_all = True, merge = None, load_walks = False):
+    def __init__(self, pf, read_all=True, merge=None, load_walks=False):
         """
         Initialize our analysis environment, read in data.
             pf = Parameter file (either a dictionary or a text file)

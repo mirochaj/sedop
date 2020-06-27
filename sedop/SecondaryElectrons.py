@@ -25,7 +25,7 @@ x_HII = np.array([1.0e-4, 2.318e-4, 4.677e-4, 1.0e-3, 2.318e-3,
 class SecondaryElectrons(object):
     def __init__(self, pf):
         self.pf = pf
-        self.Method = self.pf["SecondaryIonization"]
+        self.Method = self.pf["secondary_ionization"]
         self.NumberOfEnergyBins = 258
         self.NumberOfXiBins = 14
         

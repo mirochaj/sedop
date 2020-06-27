@@ -19,6 +19,7 @@ import numpy as np
 from .Anneal import Anneal
 from .ProgressBar import ProgressBar
 from .RateIntegrals import RateIntegrals
+from .RadiationSource import RadiationSource
 from .SetDefaultParameterValues import SetDefaultParameterValues
 
 try:
@@ -39,6 +40,12 @@ class OptimizeSED(object):
                 continue
             
             self.pf[kwarg] = kwargs[kwarg]
+            
+    @property
+    def src(self):
+        if not hasattr(self, '_src'):
+            self._src = RadiationSource(self.pf)
+        return self._src
             
     def _prep_output_dir(self, output_dir):
         
@@ -124,7 +131,7 @@ class OptimizeSED(object):
         
         # Initialize classes that do all the heavy lifting
         ri = RateIntegrals(pf)
-        anneal = Anneal(pf)
+        anneal = Anneal(pf, self.src)
         
         # Set up directory hierarchy now rather than later - won't delete 
         # anything so be careful.
@@ -132,9 +139,9 @@ class OptimizeSED(object):
 
         # Determine which integrals we're doing the optimization for
         Integrals = []
-        if type(pf['RateIntegral']) is not list: 
-            pf['RateIntegral'] = [pf['RateIntegral']]
-        for integral in pf['RateIntegral']:
+        if type(pf['rate_integral']) is not list: 
+            pf['rate_integral'] = [pf['rate_integral']]
+        for integral in pf['rate_integral']:
             if integral == 0: 
                 Integrals.append(ri.Phi)
             if integral == 1: 
@@ -149,20 +156,20 @@ class OptimizeSED(object):
                 Integrals.append(ri.PsiHat)
 
         # Set minimization method
-        if type(pf['MinimizationMethod']) is not list: 
-            MinMethod = [pf['MinimizationMethod']]
+        if type(pf['method']) is not list: 
+            MinMethod = [pf['method']]
         else:
-            MinMethod = pf['MinimizationMethod']
+            MinMethod = pf['method']
 
         # Some shortcuts
-        MultiSpecies = int(pf['MultiSpecies'])
+        MultiSpecies = int(pf['multispecies'])
         # Total number of column points
-        N = pf['HINumberOfColumns'] * pf['HeINumberOfColumns']
+        N = pf['NHInum'] * pf['NHeInum']
 
-        if MultiSpecies and N == pf['HINumberOfColumns']:
-            raise Exception('MultiSpeces > 0 but no helium columns specified! Exiting.')
+        if MultiSpecies and N == pf['NHInum']:
+            raise Exception('multispecies > 0 but no helium columns specified! Exiting.')
 
-        SourceMinEnergy = pf['SpectrumMinEnergy']
+        SourceMinEnergy = pf['spectrum_Emin']
         if type(SourceMinEnergy) is not float:
             SourceMinEnergy = min(SourceMinEnergy)
 
@@ -170,7 +177,7 @@ class OptimizeSED(object):
         # species if the lower energy cutoff in the spectrum is above all 
         # ionization thresholds. Account for this.    
         E_threshold = np.array([13.6, 24.6, 54.4])
-        if np.all(SourceMinEnergy > E_threshold[1:]) or (pf['Species'] == 1):
+        if np.all(SourceMinEnergy > E_threshold[1:]) or (pf['species'] == 1):
             Species = 1 # equiv. to saying Phi_HI = Phi_HeI = Phi_HeII and same for Psi
         else:
             Species = 2 # hydrogen and helium
@@ -232,9 +239,9 @@ class OptimizeSED(object):
 
         # Set lower bounds of integration based on optically thin transition
         HIColumnMin = min(list(zip(*ncol_trans))[0])
-        HIColumnMax = pf["HIColumnMax"]
+        HIColumnMax = pf["NHImax"]
         HeIColumnMin = min(list(zip(*ncol_trans))[1])
-        HeIColumnMax = pf["HeIColumnMax"]
+        HeIColumnMax = pf["NHeImax"]
         
         if rank == 0:
             s = '{:.2e} - {:.2e} cm^2.'.format(HIColumnMin, HIColumnMax)
@@ -246,11 +253,11 @@ class OptimizeSED(object):
             # Construct reference array ("correct" values for RateIntegrals)
             print('Constructing continuous \'reference\' integrals...')
 
-        colHI = np.logspace(np.log10(HIColumnMin), np.log10(HIColumnMax), pf['HINumberOfColumns'])
+        colHI = np.logspace(np.log10(HIColumnMin), np.log10(HIColumnMax), pf['NHInum'])
         if not MultiSpecies:
             colHeI = np.array([0])
         else:
-            colHeI = np.logspace(np.log10(HeIColumnMin), np.log10(HeIColumnMax), pf['HeINumberOfColumns'])
+            colHeI = np.logspace(np.log10(HeIColumnMin), np.log10(HeIColumnMax), pf['NHeInum'])
 
         pbar = ProgressBar(maxval=len(Integrals) * 2 * N)
         pbar.start()
@@ -335,10 +342,10 @@ class OptimizeSED(object):
             f = h5py.File(fn, 'w')
 
             # Store data
-            f.create_dataset('E_initial_guesses', data=self.results['Ei'])
-            f.create_dataset('F_initial_guesses', data=self.results['Fi'])
-            f.create_dataset('E_final_guesses', data=self.results['Ef'])
-            f.create_dataset('F_final_guesses', data=self.results['Fi'])
+            f.create_dataset('Ei', data=self.results['Ei'])
+            f.create_dataset('Fi', data=self.results['Fi'])
+            f.create_dataset('Ef', data=self.results['Ef'])
+            f.create_dataset('Ff', data=self.results['Fi'])
             f.create_dataset('cost', data=self.results['cost'])
             
             # Store parameter file
@@ -347,10 +354,19 @@ class OptimizeSED(object):
                 pfgrp.create_dataset(key, data=pf[key])
             
             # These are not actually parameters -- we compute them automatically
-            pfgrp.create_dataset('HIColumnMin', data=HIColumnMin)
-            pfgrp.create_dataset('HeIColumnMin', data=HeIColumnMin)
+            pfgrp.create_dataset('NHI_min', data=HIColumnMin)
+            pfgrp.create_dataset('NHeI_min', data=HeIColumnMin)
+            
+            # Save all the trials
+            num = self.pf['num_bins']
+            walks = np.zeros((ntrials, nsteps, 2 * num))
+            for i in range(ntrials):
+                walks[i,:,0:num] = self.results['walks'][i][0]
+                walks[i,:,num:]  = self.results['walks'][i][1]
 
             f.close()
+            
+            print("Wrote {}.".format(fn))
 
         if size > 1:
             MPI.COMM_WORLD.barrier()
@@ -359,6 +375,7 @@ class OptimizeSED(object):
 
         if rank == 0:
             print("Run time: {0} minutes".format(round((end - start) / 60, 2)))
-
-        return
+            print("Results available in `results` attribute for safe-keeping.")
+        
+        return self.results
 

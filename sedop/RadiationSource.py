@@ -43,7 +43,7 @@ SpectrumType = 4 (simple power-law)
 """
 
 def RadiationSource(pf):
-    if pf['SpectrumFile'] != 'None':
+    if pf['spectrum_file'] != 'None':
         return RadiationSourceUserDefined(pf) 
     else:
         return RadiationSourceModel(pf)  
@@ -53,40 +53,41 @@ class RadiationSourceModel(object):
         self.pf = pf
         
         self.SpectrumPars = listify(pf)
-        self.N = len(self.SpectrumPars['Type'])
+        
+        self.N = len(self.SpectrumPars['type'])
         
         # Cast types to int to avoid indexing complaints
         self.SpectrumPars['Type'] = \
-            [int(elem) for elem in self.SpectrumPars['Type']]
+            [int(elem) for elem in self.SpectrumPars['type']]
         
-        self.Emin = min(self.SpectrumPars['MinEnergy'])
-        self.Emax = min(self.SpectrumPars['MaxEnergy'])        
+        self.Emin = min(self.SpectrumPars['Emin'])
+        self.Emax = min(self.SpectrumPars['Emax'])        
         
         if self.N == 1:
-            self.Type = self.SpectrumPars['Type'][0]
+            self.Type = self.SpectrumPars['type'][0]
                        
         self.last_renormalized = 0
         
         # SourceType 0, 1, 2
-        self.Lph = pf['SpectrumPhotonLuminosity']
+        self.Lph = pf['source_Qdot']
         
         # SourceType = 1, 2
-        self.T = pf['SourceTemperature']
+        self.T = pf['source_temperature']
         
         # SourceType >= 3
-        self.M = self.M0 = pf['SourceMass']
-        self.epsilon = pf['SourceRadiativeEfficiency']
+        self.M = self.M0 = pf['source_mass']
+        self.epsilon = pf['source_epsilon']
         
         if 3 in self.SpectrumPars['Type']:
             self.r_in = self.DiskInnermostRadius(self.M0)
-            self.r_out = pf['SourceDiskMaxRadius'] * self.GravitationalRadius(self.M0)
-            self.fcol = self.SpectrumPars['ColorCorrectionFactor'][self.SpectrumPars['Type'].index(3)]
+            self.r_out = pf['source_Rmax'] * self.GravitationalRadius(self.M0)
+            self.fcol = self.SpectrumPars['fcol'][self.SpectrumPars['type'].index(3)]
             self.T_in = self.DiskInnermostTemperature(self.M0)
             self.T_out = self.DiskTemperature(self.M0, self.r_out)
         
         # Number of ionizing photons per cm^2 of surface area for BB of temperature self.T.  
         # Use to solve for stellar radius (which we need to get Lbol).  The factor of pi gets rid of the / sr units
-        if pf['SourceType'] in [1, 2]:
+        if pf['source_type'] in [1, 2]:
             self.LphNorm = np.pi * 2. * (k_B * self.T)**3 * \
                 quad(lambda x: x**2 / (np.exp(x) - 1.), 
                 13.6 * erg_per_ev / k_B / self.T, big_number, epsrel = 1e-12)[0] / h**3 / c**2 
@@ -115,10 +116,10 @@ class RadiationSourceModel(object):
         Inner radius of disk.  Unless SourceISCO > 0, will be set to the 
         inner-most stable circular orbit for a BH of mass M.
         """
-        if not self.pf['SourceISCO']:
+        if not self.pf['source_isco']:
             return 6. * self.GravitationalRadius(M)
         else:
-            return self.pf['SourceISCO']     
+            return self.pf['source_isco']     
             
     def DiskInnermostTemperature(self, M):
         """
@@ -157,8 +158,8 @@ class RadiationSourceModel(object):
         else:
             Lnu = 0.0
             
-        if self.SpectrumPars['AbsorbingColumn'][i] > 0:
-            return Lnu * np.exp(-self.SpectrumPars['AbsorbingColumn'][i] * (sigma_E(E, 0) + y * sigma_E(E, 1)))   
+        if self.SpectrumPars['logN'][i] > 0:
+            return Lnu * np.exp(-10**self.SpectrumPars['logN'][i] * (sigma_E(E, 0) + y * sigma_E(E, 1)))   
         else:
             return Lnu     
                 
@@ -175,7 +176,7 @@ class RadiationSourceModel(object):
             self.last_renormalized = t
             self.M = self.BlackHoleMass(t)
             self.r_in = self.DiskInnermostRadius(self.M)
-            self.r_out = self.pf['SourceDiskMaxRadius'] * self.GravitationalRadius(self.M)
+            self.r_out = self.pf['souce_Rmax'] * self.GravitationalRadius(self.M)
             self.T_in = self.DiskInnermostTemperature(self.M)
             self.T_out = self.DiskTemperature(self.M, self.r_out)
             self.Lbol = self.BolometricLuminosity(t)
@@ -183,8 +184,8 @@ class RadiationSourceModel(object):
         
         emission = np.zeros_like(E)
         for h, bin in enumerate(E):
-            for i, Type in enumerate(self.SpectrumPars['Type']):
-                if not (self.SpectrumPars['MinEnergy'][i] <= E[h] <= self.SpectrumPars['MaxEnergy'][i]):
+            for i, Type in enumerate(self.SpectrumPars['type']):
+                if not (self.SpectrumPars['Emin'][i] <= E[h] <= self.SpectrumPars['Emax'][i]):
                     continue
                     
                 if only is not None and Type != only:
@@ -220,10 +221,10 @@ class RadiationSourceModel(object):
         """         
         
         # If t > 0, re-compute mass, inner radius, and inner temperature
-        if t > 0 and self.pf['SourceTimeEvolution'] > 0 and t != self.last_renormalized:
+        if t > 0 and self.pf['source_time_evolution'] > 0 and t != self.last_renormalized:
             self.M = self.BlackHoleMass(t)
             self.r_in = self.DiskInnermostRadius(self.M)
-            self.r_out = self.pf['SourceDiskMaxRadius'] * self.GravitationalRadius(self.M)
+            self.r_out = self.pf['source_Rmax'] * self.GravitationalRadius(self.M)
             self.T_in = self.DiskInnermostTemperature(self.M)
             self.T_out = self.DiskTemperature(self.M, self.r_out)
         
@@ -239,9 +240,9 @@ class RadiationSourceModel(object):
         
         normalizations = np.zeros(self.N)
         for i, component in enumerate(self.SpectrumPars['Type']):
-            integral, err = quad(self.Intensity, self.SpectrumPars['MinNormEnergy'][i], 
-                self.SpectrumPars['MaxNormEnergy'][i], args = (i, component, t,))
-            normalizations[i] = self.SpectrumPars['Fraction'][i] * Lbol / integral
+            integral, err = quad(self.Intensity, self.SpectrumPars['EminNorm'][i], 
+                self.SpectrumPars['EmaxNorm'][i], args = (i, component, t,))
+            normalizations[i] = self.SpectrumPars['fraction'][i] * Lbol / integral
             
         return normalizations
         
@@ -251,13 +252,13 @@ class RadiationSourceModel(object):
         bolometric luminosity will increase with time, hence the optional 't' argument.
         """
         
-        if self.pf['SourceType'] == 1:
+        if self.pf['source_type'] == 1:
             return self.Lbol
         
-        if self.pf['SourceType'] == 2:
+        if self.pf['source_type'] == 2:
             return 10**SchaererTable["Luminosity"][SchaererTable["Mass"].index(self.M)] * lsun
             
-        if self.pf['SourceType'] > 2:
+        if self.pf['source_type'] > 2:
             Mnow = self.BlackHoleMass(t)
             if M is not None:
                 Mnow = M
@@ -272,8 +273,8 @@ class RadiationSourceModel(object):
         else: 
             Lbol = 1
         
-        E = np.logspace(np.log10(min(self.SpectrumPars['MinNormEnergy'])), 
-            np.log10(max(self.SpectrumPars['MaxNormEnergy'])), bins)
+        E = np.logspace(np.log10(min(self.SpectrumPars['EminNorm'])), 
+            np.log10(max(self.SpectrumPars['EmaxNorm'])), bins)
         F = []
         
         for energy in E:
@@ -282,9 +283,9 @@ class RadiationSourceModel(object):
         if components and self.N > 1:
             EE = []
             FF = []
-            for i, component in enumerate(self.SpectrumPars['Type']):
-                tmpE = np.logspace(np.log10(self.SpectrumPars['MinEnergy'][i]), 
-                    np.log10(self.SpectrumPars['MaxEnergy'][i]), bins)
+            for i, component in enumerate(self.SpectrumPars['type']):
+                tmpE = np.logspace(np.log10(self.SpectrumPars['Emin'][i]), 
+                    np.log10(self.SpectrumPars['Emax'][i]), bins)
                 tmpF = []
                 for energy in tmpE:
                     tmpF.append(self.Spectrum(energy, t = t, only = component))
@@ -316,7 +317,7 @@ class RadiationSourceModel(object):
 class RadiationSourceUserDefined(object):
     def __init__(self, pf):
         self.pf = pf
-        self.fn = pf['SpectrumFile']
+        self.fn = pf['spectrum_file']
         
         self.initialize()
         
@@ -336,7 +337,7 @@ class RadiationSourceUserDefined(object):
             if len(self.L_E) > 1:
                 self.t = self.Age = f['time_yr'].value * s_per_yr
                 self.Nt = len(self.t)
-                i = self.get_time_index(self.pf['FixedAge'] * s_per_myr)
+                i = self.get_time_index(self.pf['source_age'] * s_per_myr)
                 self.L_E = self.L_E[i]
         
         else:
@@ -394,17 +395,17 @@ def listify(pf):
     Turn any Spectrum parameter into a list, if it isn't already.
     """            
     
-    if type(pf['SpectrumType']) is not list:
+    if type(pf['spectrum_type']) is not list:
         ntypes = 1
     else:
-        ntypes = len(pf['SpectrumType'])
+        ntypes = len(pf['spectrum_type'])
     
     Spectrum = {}    
     for par in pf.keys():
-        if par[0:8] != 'Spectrum':
+        if par[0:8] != 'spectrum':
             continue
             
-        new_name = par.lstrip('Spectrum')
+        new_name = par[9:]
         if type(pf[par]) is not list:
             Spectrum[new_name] = [pf[par]]
         else:

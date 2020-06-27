@@ -12,7 +12,6 @@ Description: Simulated annealing baby.
 import numpy as np
 import copy, h5py, os
 from .ProgressBar import ProgressBar
-from .RadiationSource import RadiationSource
 
 try:
     from mpi4py import MPI
@@ -23,20 +22,20 @@ except ImportError:
     size = 1
 
 class Anneal(object):
-    def __init__(self, pf):
+    def __init__(self, pf, src):
         self.pf = pf
-        self.rs = RadiationSource(pf)
-        self.Nbins = int(pf['NumberOfBins'])
+        self.src = src
+        self.Nbins = int(pf['num_bins'])
                   
-        self.Gamma = pf['TemperatureGamma']
-        self.afreq = self.Nbins * pf['AnnealingFrequencyPerBin']
-        self.maxEstep = pf["MaximumEnergyStep"]
-        self.maxFstep = pf["MaximumNormalizationStep"]
+        self.Gamma = pf['anneal_gamma']
+        self.afreq = self.Nbins * pf['anneal_freq']
+        self.maxEstep = pf["anneal_Estep"]
+        self.maxFstep = pf["anneal_Fstep"]
                         
         # Set up initial guesses for bin placement and normalization
         # (may be overriden later but that's OK)
-        self.E = np.linspace(self.rs.Emin, self.rs.Emax, self.Nbins)
-        #self.F = self.rs.Spectrum(self.E) / np.sum(self.rs.Spectrum(self.E))
+        self.E = np.linspace(self.src.Emin, self.src.Emax, self.Nbins)
+        #self.F = self.src.Spectrum(self.E) / np.sum(self.src.Spectrum(self.E))
         self.F = np.ones(self.Nbins) / self.Nbins
                        
     def initial_guess(self):
@@ -52,24 +51,24 @@ class Anneal(object):
             # Generate random energy bins
             E = np.zeros(self.Nbins)
             for i in range(self.Nbins): 
-                if self.pf['InitialGuessLogarithmic']:
-                    E[i] = 10**(np.random.rand() * (np.log10(self.rs.Emax) - np.log10(self.rs.Emin)) \
-                        + np.log10(self.rs.Emin))
+                if self.pf['guess_log']:
+                    E[i] = 10**(np.random.rand() * (np.log10(self.src.Emax) - np.log10(self.src.Emin)) \
+                        + np.log10(self.src.Emin))
                 else:
-                    E[i] = np.random.rand() * (self.rs.Emax - self.rs.Emin) \
-                        + self.rs.Emin         
+                    E[i] = np.random.rand() * (self.src.Emax - self.src.Emin) \
+                        + self.src.Emin         
                                     
             # Normalization split equally to start
-            F = np.ones(self.Nbins) / self.Nbins 
+            F = np.ones(self.Nbins) / self.Nbins
                         
         # If we have a single energy bin, this is easy
         else:
-            if self.pf['InitialGuessLogarithmic']:
-                E = np.array([10**(np.random.rand() * (np.log10(self.rs.Emax) - np.log10(self.rs.Emin)) \
-                    + np.log10(self.rs.Emin))])
+            if self.pf['guess_log']:
+                E = np.array([10**(np.random.rand() * (np.log10(self.src.Emax) - np.log10(self.src.Emin)) \
+                    + np.log10(self.src.Emin))])
             else:
-                E = np.array([np.random.rand() * (self.rs.Emax - self.rs.Emin) \
-                    + self.rs.Emin])
+                E = np.array([np.random.rand() * (self.src.Emax - self.src.Emin) \
+                    + self.src.Emin])
                     
             F = np.array([np.random.rand()])
         
@@ -83,11 +82,11 @@ class Anneal(object):
         # If loc is less than Nbins, we should vary bin placement
         if loc < self.Nbins: 
             
-            E_llim = self.rs.Emin
-            E_ulim = self.rs.Emax
+            E_llim = self.src.Emin
+            E_ulim = self.src.Emax
             
             # Generate new guess
-            if self.pf["GaussianGuess"]:
+            if self.pf["guess_gaussian"]:
                 E[loc] = max(min(np.random.normal(E[loc], max_dE), E_ulim), E_llim)
             else:
                 
@@ -107,11 +106,12 @@ class Anneal(object):
                 F_llim = max(0.0, F[loc - self.Nbins] - max_dF)
                 F_ulim = min(1.0, F[loc - self.Nbins] + max_dF)
                 
-                if self.pf["GaussianGuess"]:
+                if self.pf["guess_gaussian"]:
                     F[loc - self.Nbins] = max(min(np.random.normal(F[loc - self.Nbins], max_dF), 1), 0)
-                elif self.pf["LogarithmicNormStep"] and (F[loc - self.Nbins] <= 0.01):
-                    F_llim = max(self.pf["LogMinimumNormalization"], np.log10(F[loc - self.Nbins]) + self.pf["MaximumLogNormalizationStep"])
-                    F_ulim = min(-1.3, np.log10(F[loc - self.Nbins]) - self.pf["MaximumLogNormalizationStep"])    
+                elif self.pf["anneal_logFstep"] and (F[loc - self.Nbins] <= 0.01):
+                    F_llim = max(self.pf["anneal_logFmin"], 
+                        np.log10(F[loc - self.Nbins]) + self.pf["anneal_logFstep_max"])
+                    F_ulim = min(-1.3, np.log10(F[loc - self.Nbins]) - self.pf["anneal_logFstep_max"])    
                    
                     F[loc - self.Nbins] = 10**(np.random.rand() * (F_ulim - F_llim) + F_llim)
                 else:
@@ -169,7 +169,7 @@ class Anneal(object):
             #    history = h5py.File(newfn, 'a')                                    
         
             # Generate initial guesses for E, F -- or use best solutions from previous walk
-            if self.pf["InitialGuessMemory"] and i > 0:
+            if self.pf["guess_memory"] and i > 0:
                 pass
             else:    
                 E, F = self.initial_guess()
@@ -191,7 +191,7 @@ class Anneal(object):
             acceptance_history[0][0:self.Nbins] = 0
             
             # Initial value for temperature
-            T = last_cost * self.pf["InitialTemperatureDecrement"]
+            T = last_cost * self.pf["anneal_T0"]
             Tnot = copy.deepcopy(T)
             temperature = [T]        
                         

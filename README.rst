@@ -4,7 +4,7 @@ sedop
 
 sedop is a Monte-Carlo minimization code designed to optimally construct spectral energy distributions (SEDs) 
 for sources of ultraviolet and X-ray radiation employed in numerical simulations of reionization and 
-radiative feedback.  The methods paper can be found `here <http://arxiv.org/abs/1204.1944>`_.
+radiative feedback.  The methods paper is `Mirocha et al. 2012 <http://arxiv.org/abs/1204.1944>`_.
 
 Getting started
 ---------------
@@ -14,15 +14,11 @@ To clone a copy and install: ::
     cd sedop
     python setup.py install
 
-Currently, sedop depends on h5py, mpi4py, numpy, and scipy, though the scipy dependence is small and 
-I am in the process of removing it.  mpi4py is not necessary if you only run in serial, but I would 
+Currently, sedop depends on h5py, mpi4py, numpy, matplotlib, and scipy. mpi4py is not necessary if you only run in serial, but I would 
 recommend building it as multi-frequency, multi-species optimizations can be rather expensive.  
-The built-in analysis module also relies on matplotlib, though if you'd rather write your own analysis 
-scripts, this dependence is not necessary. 
 
 Example
 -------
-
 sedop can be run in serial, or in an embarrassingly parallel way.  To get started, let's open
 up a parameter file (call it 'pf.dat'), and compute the optimal monochromatic SED for a 
 10^5 K blackbody spectrum: ::

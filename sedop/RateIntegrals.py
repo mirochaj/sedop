@@ -28,9 +28,9 @@ class RateIntegrals(object):
         self.pf = pf
         self.rs = RadiationSource(pf)
         self.esec = SecondaryElectrons(pf)
-        self.N = pf['NumberOfBins']
-        self.MultiSpecies = pf['MultiSpecies']
-        self.approx = pf['ApproximateCrossSections']
+        self.N = pf['num_bins']
+        self.MultiSpecies = pf['multispecies']
+        self.approx = pf['approx_cross_sections']
         
     def PhotoIonizationCrossSection(self, E, species = 0):
         """ 
@@ -102,7 +102,7 @@ class RateIntegrals(object):
         """
          
         if continuous:            
-            if self.pf['SpectrumFile'] != 'None':
+            if self.pf['spectrum_file'] != 'None':
                 return np.trapz(self.rs.Spectrum()[self.rs.i_Eth[species]:] * \
                     np.exp(-self.OpticalDepth(self.rs.E[self.rs.i_Eth[species]:], n)) / \
                     (self.rs.E[self.rs.i_Eth[species]:] * erg_per_ev), self.rs.E[self.rs.i_Eth[species]:])
@@ -119,7 +119,7 @@ class RateIntegrals(object):
         """
     
         if continuous:
-            if self.pf['SpectrumFile'] != 'None':
+            if self.pf['spectrum_file'] != 'None':
                 return np.trapz(self.rs.Spectrum()[self.rs.i_Eth[species]:] * \
                     np.exp(-self.OpticalDepth(self.rs.E[self.rs.i_Eth[species]:], n)), 
                     self.rs.E[self.rs.i_Eth[species]:])
