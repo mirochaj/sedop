@@ -115,7 +115,7 @@ class Anneal(object):
                    
                     F[loc - self.Nbins] = 10**(np.random.rand() * (F_ulim - F_llim) + F_llim)
                 else:
-                    F[loc - self.Nbins] = np.random.rand() * (F_ulim - F_llim) + F_llim           
+                    F[loc - self.Nbins] = np.random.rand() * (F_ulim - F_llim) + F_llim
                       
                 # Always renormalize if somehow we exceed 100% of the bolometric luminosity
                 if np.sum(F) > 1: 
@@ -241,7 +241,6 @@ class Anneal(object):
                     
                 E = np.array(newE)
                 F = np.array(newF)
-                                                                                                                                                                                                  
                 # If we made a good guess, compare future progress to this result
                 acceptance_history[j][0:self.Nbins] = 0
                 if np.random.rand() < p or j == 0: 
@@ -273,36 +272,19 @@ class Anneal(object):
             cost.append(last_cost)
             
             walks.append((E_guess_history, F_guess_history))
-                                                                                                                                                                                                 
-            # Write guess history for this random walk
-            #if self.pf['TrackWalks']:
-            #    ee = list(zip(*E_guess_history))
-            #    ff = list(zip(*F_guess_history))
-            #    aa = list(zip(*acceptance_history))
-            #    grp = history.create_group("walk{0}".format(i))
-            #    grp.create_dataset('cost', data = np.array(cost_history))
-            #    grp.create_dataset('temp', data = np.array(temperature))
-            #    for m, energy in enumerate(ee): 
-            #        grp.create_dataset('e{0}'.format(m), data = np.array(ee[m]))
-            #        grp.create_dataset('f{0}'.format(m), data = np.array(ff[m]))
-            #        grp.create_dataset('acc{0}'.format(m), data = np.array(aa[m]))   
-            # 
-            #    if rank == 0:
-            #        print("Wrote guess history for random walk #{0}.".format(i + 1))
-            # 
-            #    history.close() 
-                                            
-        # This could all be post-processed...but let's do it here.    
-        E_initial_guesses = MPI.COMM_WORLD.allreduce(E_initial_guesses, E_initial_guesses)            
-        F_initial_guesses = MPI.COMM_WORLD.allreduce(F_initial_guesses, F_initial_guesses)                
-        E_final_guesses = MPI.COMM_WORLD.allreduce(E_final_guesses, E_final_guesses)            
+
+
+        # This could all be post-processed...but let's do it here.
+        E_initial_guesses = MPI.COMM_WORLD.allreduce(E_initial_guesses, E_initial_guesses)
+        F_initial_guesses = MPI.COMM_WORLD.allreduce(F_initial_guesses, F_initial_guesses)
+        E_final_guesses = MPI.COMM_WORLD.allreduce(E_final_guesses, E_final_guesses)
         F_final_guesses = MPI.COMM_WORLD.allreduce(F_final_guesses, F_final_guesses)
         cost = MPI.COMM_WORLD.allreduce(cost, cost)    
                                 
-        E_initial_guesses = list(zip(*E_initial_guesses))
-        F_initial_guesses = list(zip(*F_initial_guesses))
-        E_final_guesses   = list(zip(*E_final_guesses))
-        F_final_guesses   = list(zip(*F_final_guesses))
+        E_initial_guesses = np.array(list(zip(*E_initial_guesses)))
+        F_initial_guesses = np.array(list(zip(*F_initial_guesses)))
+        E_final_guesses   = np.array(list(zip(*E_final_guesses)))
+        F_final_guesses   = np.array(list(zip(*F_final_guesses)))
         
         results = {'Ei': E_initial_guesses, 'Ef': E_final_guesses,
             'Fi': F_initial_guesses, 'Ff': F_final_guesses, 'cost': cost,
