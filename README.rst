@@ -18,22 +18,37 @@ Currently, sedop depends on h5py, mpi4py, numpy, matplotlib, and scipy. mpi4py i
 
 Example
 -------
-A quick example can be run in an interactive Python session. The
+A quick example can be run in an interactive Python session. The following code snippet will run 5 independent Monte Carlo calculations, each with 10,000 steps, to find the optimal monochromatic representation of a :math:`10^5` K blackbody spectrum:
 
 ::
 	
 	import sedop
 	
-	opt = sedop.OptimizeSED(source_type=1, num_bins=1)
-	results = opt.run(prefix='test_bb', nsteps=1e4, ntrials=5, clobber=0,
-	    restart=1)
+	opt = sedop.OptimizeSED(source_type=1, source_temperature=1e5, num_bins=1)
+	results = opt.run(prefix='test_bb', nsteps=1e4, ntrials=5, clobber=0)
 		
-This will create a file called 'results.h5' in your current working directory.  Since
-TrackWalks = 1, you will also get a file called 'guesses_procN.h5' where N = 0 up to
-however many processors you ran on.
+The `results` dictionary contains the end-points of each Monte Carlo run in energy (``Ef``) and normalization (``Ff``), as well as the starting points (``Ei`` and ``Fi``, respectively). The full trajectory of each random walk is saved in the ``Nsteps`` and ``Fsteps`` elements. A file called 'test_bb.hdf5' will also be saved in your current working directory containing the same contents as the ``results`` dictionary.
+
+To do some simple data inspection, one could do, e.g.,
+
+::
+
+	import matplotlib.pyplot as pl
+
+	colors = 'k', 'b', 'c', 'm'
+	for i in range(5): # loop over trials  
+	    for j in range(opt.pf['num_bins']): # loop over energy bins
+			# Plot trajectory of Monte Carlo run
+	        pl.plot(results['Esteps'][j,i,:], color=colors[j], alpha=0.1,
+	            label='bin {}'.format(j+1) if i == 0 else None)
+	
+
+More sophisticated analysis routines live in the ``sedop.Analysis.Analyze`` class, though likely still need to be patched up to account for changes in numpy, h5py, and Python itself that have occurred since sedop was originally written back in 2011-2012.
 
 
 Documentation
 -------------
 For more examples, checkout the documentation. For now, you'll have to build it locally, i.e., navigate to the ``doc`` folder and type ``make html``. Then, open ``_build/html/index.html``.
+
+
 

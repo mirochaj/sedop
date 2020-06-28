@@ -16,6 +16,14 @@ from .Constants import *
 from scipy.integrate import quad
 from .ComputeCrossSections import PhotoIonizationCrossSection as sigma_E
 
+try:
+    from mpi4py import MPI
+    rank = MPI.COMM_WORLD.rank
+    size = MPI.COMM_WORLD.size
+except ImportError:
+    rank = 0
+    size = 1
+
 np.seterr(all = 'ignore')   # exp overflow occurs when integrating BB - will return 0 as it should for x large
 
 SchaererTable = {
@@ -43,10 +51,12 @@ SpectrumType = 4 (simple power-law)
 """
 
 def RadiationSource(pf):
-    if pf['spectrum_file'] != 'None':
-        return RadiationSourceUserDefined(pf) 
+    if pf['spectrum_file'] is not None:
+        return RadiationSourceUserDefined(pf)
+    elif pf['spectrum_func'] is not None:
+        return pf['spectrum_func']
     else:
-        return RadiationSourceModel(pf)  
+        return RadiationSourceModel(pf)
                                 
 class RadiationSourceModel(object):
     def __init__(self, pf):
@@ -163,7 +173,7 @@ class RadiationSourceModel(object):
         else:
             return Lnu     
                 
-    def Spectrum(self, E, t = 0.0, only = None):
+    def Spectrum(self, E, t=0.0, only=None):
         """
         Return fraction of bolometric luminosity emitted at energy E.
         """        
@@ -329,51 +339,45 @@ class RadiationSourceUserDefined(object):
         be first column, L_E the second.
         """                 
         
-        if re.search('hdf5', self.fn) or re.search('h5', self.fn):
+        # Can actually just supply as arrays too.
+        if type(self.fn) in [tuple, list, np.array]:
+            self.E, self.L_E = self.fn
+        elif re.search('hdf5', self.fn) or re.search('h5', self.fn):
             f = h5py.File(self.fn)
             self.E = f['E'].value
             self.L_E = f['L_E'].value
             
-            if len(self.L_E) > 1:
-                self.t = self.Age = f['time_yr'].value * s_per_yr
-                self.Nt = len(self.t)
-                i = self.get_time_index(self.pf['source_age'] * s_per_myr)
-                self.L_E = self.L_E[i]
-        
+            #if len(self.L_E) > 1:
+            #    self.t = self.Age = f['time_yr'].value * s_per_yr
+            #    self.Nt = len(self.t)
+            #    i = self.get_time_index(self.pf['source_age'] * s_per_myr)
+            #    self.L_E = self.L_E[i]
+            
+            f.close()    
+            if rank == 0:
+                print("Read {}.".format(self.fn))            
+                        
         else:
-            f = open(self.fn, 'r')
-            self.E = []
-            self.L_E = []
-            for line in f:
-                if not line.strip():
-                    continue
-                if line[0] == '#':
-                    continue
-                    
-                E, L_E = line.split()
-                
-                self.E.append(float(E))
-                self.L_E.append(float(L_E))
-        
-            self.E = np.array(self.E)
-            self.L_E = np.array(self.L_E)
+            self.E, self.L_E = np.loadtxt(self.fn, unpack=True)
+            if rank == 0:
+                print("Read {}.".format(self.fn))
             
         self.Emin = max(np.min(self.E), E_th[0])
         self.Emax = np.max(self.E)
         
         # Threshold indices
-        self.i_Eth = np.zeros(3)
+        self.i_Eth = np.zeros(3, dtype=int)
         for i, energy in enumerate(E_th):
             loc = np.argmin(np.abs(energy - self.E))
             
             if self.E[loc] < energy:
                 loc += 1
             
-            self.i_Eth[i] = loc    
+            self.i_Eth[i] = int(loc)
             
         self.Lbol = self.BolometricLuminosity()    
                         
-    def Spectrum(self, E = None, t = 0.0):
+    def Spectrum(self, E=None, t=0.0):
         """
         Return (normalized) specific luminosity.
         """
@@ -383,7 +387,7 @@ class RadiationSourceUserDefined(object):
     def Intensity(self, E = None):
         return self.L_E
         
-    def BolometricLuminosity(self, t = 0.0):
+    def BolometricLuminosity(self, t=0.0):
         return np.trapz(self.L_E, self.E)
         
     def get_time_index(self, t):

@@ -65,7 +65,8 @@ def SetDefaultParameterValues():
        
      # Spectral parameters
      "spectrum_discrete": 0,
-     "spectrum_file": 'None',
+     "spectrum_file": None,
+     "spectrum_func": None,
      "spectrum_type": 1, 
      "spectrum_fraction": 1.,   
      "spectrum_alpha": 1.5,  

@@ -178,8 +178,8 @@ class OptimizeSED(object):
             raise Exception('multispecies > 0 but no helium columns specified! Exiting.')
 
         SourceMinEnergy = pf['spectrum_Emin']
-        if type(SourceMinEnergy) is not float:
-            SourceMinEnergy = min(SourceMinEnergy)
+        #if type(SourceMinEnergy) is not float:
+        #    SourceMinEnergy = min(SourceMinEnergy)
 
         # The photo-ionization and heating integrals will be identical for all 
         # species if the lower energy cutoff in the spectrum is above all 
@@ -359,7 +359,7 @@ class OptimizeSED(object):
 
         # Write data.
         if rank == 0:
-            if restart:
+            if restart and os.path.exists(fn):
                 results_prev = {}
                 f = h5py.File(fn, 'r')
                 results_prev['Ei'] = np.array(f[('Ei')])
@@ -380,6 +380,8 @@ class OptimizeSED(object):
 
                 print("Stacked new results with previous run.")
                 results = results_new
+            elif restart:
+                print("Did not find pre-existing output. Will start new file.")    
                     
             # Store data
             f = h5py.File(fn, 'w')
@@ -394,7 +396,13 @@ class OptimizeSED(object):
             # Store parameter file
             pfgrp = f.create_group('parameters')
             for key in pf.keys():
-                pfgrp.create_dataset(key, data=pf[key])
+                if pf[key] is None:
+                    pfgrp.create_dataset(key, data='None')
+                # Can't save objects
+                elif key == 'spectrum_func':
+                    pfgrp.create_dataset(key, data='user')
+                else:    
+                    pfgrp.create_dataset(key, data=pf[key])
             
             # These are not actually parameters -- we compute them automatically
             pfgrp.create_dataset('NHI_min', data=HIColumnMin)

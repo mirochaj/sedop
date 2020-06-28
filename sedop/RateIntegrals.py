@@ -102,7 +102,7 @@ class RateIntegrals(object):
         """
          
         if continuous:            
-            if self.pf['spectrum_file'] != 'None':
+            if self.pf['spectrum_file'] is not None:
                 return np.trapz(self.rs.Spectrum()[self.rs.i_Eth[species]:] * \
                     np.exp(-self.OpticalDepth(self.rs.E[self.rs.i_Eth[species]:], n)) / \
                     (self.rs.E[self.rs.i_Eth[species]:] * erg_per_ev), self.rs.E[self.rs.i_Eth[species]:])
@@ -119,7 +119,7 @@ class RateIntegrals(object):
         """
     
         if continuous:
-            if self.pf['spectrum_file'] != 'None':
+            if self.pf['spectrum_file'] is not None:
                 return np.trapz(self.rs.Spectrum()[self.rs.i_Eth[species]:] * \
                     np.exp(-self.OpticalDepth(self.rs.E[self.rs.i_Eth[species]:], n)), 
                     self.rs.E[self.rs.i_Eth[species]:])

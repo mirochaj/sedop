@@ -14,16 +14,14 @@ import numpy as np
 import pylab as pl
 import itertools as it
 import matplotlib.gridspec as gridspec
+from .RateIntegrals import RateIntegrals
+from .RadiationSource import RadiationSource
+from .Constants import h, c, k_B, erg_per_ev
 
 try: 
     from scipy.integrate import simps as simpson
 except ImportError: 
     print('Need scipy to compute integrals.')
-
-h = 6.626068 * 1e-27 			# Planck's constant - [h] = erg*s
-c = 29979245800.0 				# Speed of light - [c] = cm / s
-k_B = 1.3806503 * 1e-16			# Boltzmann's constant - [k_B] = erg / K
-erg_per_ev = 1.60217646e-12
 
 colors = ['k', 'blue', 'red', 'green', 'cyan', 'magenta', 'yellow']
 symbols = ['o', 's', '^', '+', 'x']
@@ -39,7 +37,7 @@ class Analyze(object):
         """
         
         self.prefix = prefix
-        self.pf = pf
+        self._pf = pf
         
         #self.ds = Dataset(pf, load_walks = load_walks, merge = merge, read_all = read_all)
         #self.pf = self.ds.pf
@@ -95,7 +93,17 @@ class Analyze(object):
         #self.integral_solutions = {}    
         #if auto_compute:
         #    self.standard_integrals()  
-            
+        
+    @property
+    def pf(self):
+        if not hasattr(self, '_pf'):
+            self._pf = None
+        return self._pf
+    
+    @pf.setter
+    def pf(self, value):
+        self._pf = value
+
     @property
     def data(self):
         if not hasattr(self, '_data'):
@@ -103,10 +111,12 @@ class Analyze(object):
             if type(self.prefix) is str:
                 results = {}
                 f = h5py.File(self.prefix+'.hdf5', 'r')
-                results['Ei']   = np.array(f[('E_initial_guesses')])
-                results['Ef']   = np.array(f[('E_final_guesses')])
-                results['Fi']   = np.array(f[('F_initial_guesses')])
-                results['Ff']   = np.array(f[('F_final_guesses')])
+                results['Ei'] = np.array(f[('Ei')])
+                results['Ef'] = np.array(f[('Ef')])
+                results['Fi'] = np.array(f[('Fi')])
+                results['Ff'] = np.array(f[('Ff')])
+                results['Esteps'] = np.array(f[('Esteps')])
+                results['Fsteps'] = np.array(f[('Fsteps')])
                 results['cost'] = np.array(f[('cost')])
         
                 # Take parameter file from results output
@@ -125,6 +135,27 @@ class Analyze(object):
                 self._data = self.prefix
                 
         return self._data        
+        
+    @property
+    def N(self):
+        if not hasattr(self, '_N'):
+            if 'num_bins' in self.pf:
+                self._N = self.pf['num_bins']
+            else:
+                self._N = self.data['Ei'].shape[0]
+        return self._N
+        
+    @property
+    def src(self):
+        if not hasattr(self, '_src'):
+            self._src = RadiationSource(self.pf)
+        return self._src
+    
+    @property
+    def ri(self):
+        if not hasattr(self, '_ri'):
+            self._ri = RateIntegrals(self.pf)
+        return self._ri
         
     def standard_integrals(self):
         """
@@ -157,8 +188,8 @@ class Analyze(object):
         columns = []
         
         if linsp > 0:
-            E = np.linspace(self.pf['SourceMinEnergy'], self.pf['SourceMaxEnergy'], linsp)
-            F = self.rs.SpecificIntensity(E) / np.sum(self.rs.SpecificIntensity(E)) 
+            E = np.linspace(self.pf['source_Emin'], self.pf['source_Emax'], linsp)
+            F = self.src.SpecificIntensity(E) / np.sum(self.src.SpecificIntensity(E)) 
         else:    
             E = np.array(E)
             F = np.array(F)
@@ -218,8 +249,6 @@ class Analyze(object):
         else: 
             weights = None
         
-        shape = (self.N, int(self.pf['NumberOfSteps']))
-
         # Initialize dictionaries for results
         self.pdf = {'E': np.zeros(self.N, np.ndarray), 'F': np.zeros(self.N, np.ndarray)}
         self.cdf = {'E': np.zeros(self.N, np.ndarray), 'F': np.zeros(self.N, np.ndarray)}
@@ -234,12 +263,12 @@ class Analyze(object):
         if self.pf['InitialGuessMemory']:
             
             if type(Ebins) in [float, np.float64]:
-                logEmin = np.log10(self.rs.Emin)
-                logEmax = np.log10(self.rs.Emax)
+                logEmin = np.log10(self.src.Emin)
+                logEmax = np.log10(self.src.Emax)
                 if logbins or (logEmax - logEmin > 1):
                     Ebins = 10**np.arange(round(logEmin), logEmax+Ebins, Ebins)
                 else:
-                    Ebins = np.arange(round(self.rs.Emin), self.rs.Emax+Ebins, 
+                    Ebins = np.arange(round(self.src.Emin), self.src.Emax+Ebins, 
                         Ebins)
                                         
             if type(Fbins) in [float, np.float64]:
@@ -315,18 +344,18 @@ class Analyze(object):
                     self.mode['F'][i] = self.bins['F'][i][list(self.pdf['F'][i]).index(max(self.pdf['F'][i]))]
                     self.avg['F'][i] = np.mean(self.results['Ff'][i])     
                 else:
-                    self.pdf['F'][i] = self.rs.Spectrum(self.pdf['E'][i])
+                    self.pdf['F'][i] = self.src.Spectrum(self.pdf['E'][i])
                     self.cdf['F'][i] = np.cumsum(self.pdf['F'][i]) / float(np.sum(self.pdf['F'][i]))
                     self.bins['F'][i] = rebin(bin_edges)
-                    self.mode['F'][i] = self.rs.Spectrum(self.bins['E'][i][list(self.pdf['F'][i]).index(max(self.pdf['F'][i]))])  
-                    self.avg['F'][i] = self.rs.Spectrum(np.mean(self.results['Ef'][i]))
+                    self.mode['F'][i] = self.src.Spectrum(self.bins['E'][i][list(self.pdf['F'][i]).index(max(self.pdf['F'][i]))])  
+                    self.avg['F'][i] = self.src.Spectrum(np.mean(self.results['Ef'][i]))
                         
             # Compute 'best' solutions
             index = np.argmin(self.results['cost'])
             for i, binnum in enumerate(self.results['Ef']):
                 self.best['E'][i] = self.results['Ef'][i][index]
                 if self.pf['FixNormalization']:
-                    self.best['F'] = self.rs.Spectrum(self.best['E']) / np.sum(self.rs.Spectrum(self.best['E']))
+                    self.best['F'] = self.src.Spectrum(self.best['E']) / np.sum(self.src.Spectrum(self.best['E']))
                 else:
                     self.best['F'][i] = self.results['Ff'][i][index]                
             
@@ -338,7 +367,7 @@ class Analyze(object):
                 if not self.pf['FixNormalization']:
                     self.rms['F'][i] = np.sqrt(np.mean((self.results['Ff'][i] - self.best['F'][i])**2)) 
                 else: 
-                    self.rms['F'][i] = self.rs.Spectrum(np.sqrt(np.mean((self.results['Ff'][i] - self.best['F'][i])**2)))        
+                    self.rms['F'][i] = self.src.Spectrum(np.sqrt(np.mean((self.results['Ff'][i] - self.best['F'][i])**2)))        
                          
             # Compute median
             for i in range(self.N): 
@@ -593,16 +622,20 @@ class Analyze(object):
         self.ax.set_ylabel(r'$I_{\nu_{%i}}$' % bin)
         pl.draw()        
         
-    def hist1d(self, EorF='E', annotate=None):
+    def hist1d(self, EorF='E', annotate=None, ax=None, fig=1):
         """
         Histogram PDFs of best solutions.
         """
         
-        if not hasattr(self, 'ax'):
-            self.ax = pl.subplot(111)
+        if ax is None:
+            gotax = False
+            fig = pl.figure(fig)
+            ax = fig.add_subplot(111)
+        else:
+            gotax = True
         
         for i in range(self.N):
-            self.ax.plot(self.bins[EorF][i], self.pdf[EorF][i], color = colors[i], ls = '-', drawstyle = 'steps-mid')
+            ax.plot(self.bins[EorF][i], self.pdf[EorF][i], color = colors[i], ls = '-', drawstyle = 'steps-mid')
         
         if annotate is not None:
             if annotate == 'best':
@@ -619,7 +652,8 @@ class Analyze(object):
             
         pl.draw()    
         
-    def hist2d(self, bin=0, walk = 0, bins = None, initial_step = 0, normed = False, weights = None):
+    def hist2d(self, bin=0, walk=0, bins=None, initial_step=0, normed=False, 
+        weights=None):
         """
         Compute the 2D histogram of E vs. F.
         
@@ -627,7 +661,7 @@ class Analyze(object):
         """
         
         if bins is None or [None, None]:
-            bins = [np.linspace(self.rs.Emin, self.rs.Emax, 1 + (self.rs.Emax - self.rs.Emin) / 0.5), 
+            bins = [np.linspace(self.src.Emin, self.src.Emax, 1 + (self.src.Emax - self.src.Emin) / 0.5), 
                 np.linspace(0, 1, 101)]
         
         hist, xedges, yedges = np.histogram2d(self.walks[walk].E[bin][initial_step:], self.walks[walk].F[bin][initial_step:], 
@@ -635,14 +669,20 @@ class Analyze(object):
         
         return np.transpose(hist), rebin(yedges), rebin(xedges)    
         
-    def cost_plot(self, walk = 0):
+    def cost_plot(self, num=0, ax=None, fig=1):
         """
         Plot the value of the cost function vs. step in a random walk.
         Requires TrackWalks = 1.
         """
         
-        self.ax = pl.subplot(111)
-        self.ax.semilogy(self.walks[walk].cost)
+        if ax is None:
+            gotax = False
+            fig = pl.figure(fig)
+            ax = fig.add_subplot(111)
+        else:
+            gotax = True
+        
+        ax.semilogy(self.data['cost'][num])
         
         pl.draw()
         
@@ -673,25 +713,25 @@ class Analyze(object):
             
         return l2norm_abs, l2norm_rel     
         
-    def default_energy_bins(self, log = False):
+    def default_energy_bins(self, log=False):
         """
         Default bins for energy.
         """
         if log:
-            return np.logspace(np.log10(self.rs.Emin), np.log10(self.rs.Emax), 101)
+            return np.logspace(np.log10(self.src.Emin), np.log10(self.src.Emax), 101)
         else:    
-            return np.linspace(round(self.rs.Emin), self.rs.Emax, (self.rs.Emax - round(self.rs.Emin)) / 0.5 + 1)
+            return np.linspace(round(self.src.Emin), self.src.Emax, (self.src.Emax - round(self.src.Emin)) / 0.5 + 1)
     
-    def default_norm_bins(self, log = False):
+    def default_norm_bins(self, log=False):
         """
         Default bins for energy.
         """
-        
+
         if log:
             return np.logspace(self.pf['LogMinimumNormalization'], 0, 501)
         else:
-            return np.linspace(0, 1, 101)           
-        
+            return np.linspace(0, 1, 101)
+
 def rebin(bins, center = False):
     """
     Take in an array of bin edges (centers) and convert them to bin centers (edges).
