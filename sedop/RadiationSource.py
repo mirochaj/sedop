@@ -355,7 +355,7 @@ class RadiationSourceUserDefined(object):
             
             f.close()    
             if rank == 0:
-                print("Read {}.".format(self.fn))            
+                print("Read {}.".format(self.fn))
                         
         else:
             self.E, self.L_E = np.loadtxt(self.fn, unpack=True)
