@@ -10,7 +10,7 @@ Getting started
 ---------------
 To clone a copy and install: ::
 
-    hg clone https://bitbucket.org/mirochaj/sedop sedop
+    git clone https://github.com/mirochaj/sedop.git
     cd sedop
     python setup.py install
 
